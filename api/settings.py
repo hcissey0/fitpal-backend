@@ -144,7 +144,7 @@ MIDDLEWARE = [
 
 
 ALLOWED_HOSTS = [
-    '127.0.0.1', '.vercel.app'
+    '127.0.0.1', '.vercel.app', 'localhost'
 ]
 
 CORS_ALLOW_ALL_ORIGINS = True
