@@ -71,12 +71,10 @@ def create_calendar_events_for_plan(user, fitness_plan, event_type='all'):
     plan_start_date = fitness_plan.start_date
 
     # Define reminders based on user profile settings
-    reminders_override = []
+    reminders_override = [{'method': 'popup', 'minutes': 5}]
     if user.profile.email_reminders_enabled:
         reminders_override.append({'method': 'email', 'minutes': user.profile.minutes_before_email_reminder})
-    if user.profile.notification_reminders_enabled:
-        reminders_override.append({'method': 'popup', 'minutes': 5}) # Defaulting popup to 5 mins
-
+    
     # --- Create Workout Events ----
     if event_type in ['workout', 'all']:
         workout_days = fitness_plan.workout_days.filter(is_rest_day=False)
