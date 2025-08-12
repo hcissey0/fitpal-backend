@@ -13,6 +13,8 @@ from .models import (
     WorkoutTracking, MealTracking,
     WaterTracking,
 )
+from datetime import date
+
 
 User = get_user_model()
 
@@ -36,8 +38,8 @@ class EmailAuthTokenSerializer(serializers.Serializer):
             raise serializers.ValidationError(msg, code='authorization')
 
         try:
-            user = User.objects.get(email=email)
-            if not user.check_password(password):
+            user = authenticate(email=email, password=password)
+            if not user:
                 msg = _('Unable to log in with provided credentials.')
                 raise serializers.ValidationError(msg, code='authorization')
         except User.DoesNotExist:
@@ -54,7 +56,6 @@ def calculate_calories_burned(met_value, weight, duration_minutes):
     if not all([met_value, weight, duration_minutes]):
         return 0
     return round(((met_value * weight * 3.5) / 200) * duration_minutes)
-
 
 class ProfileSerializer(serializers.ModelSerializer):
     user = serializers.StringRelatedField(read_only=True)
@@ -90,7 +91,8 @@ class ProfileSerializer(serializers.ModelSerializer):
     # BMI calculation
     def get_bmi(self, obj):
         if obj.height and obj.current_weight:
-            return round(obj.current_weight / (obj.height ** 2), 2)
+            height_m = obj.height / 100 if obj.height > 3 else obj.height
+            return round(obj.current_weight / (height_m ** 2), 2)
         return None
 
     # List conversions
@@ -111,7 +113,6 @@ class ProfileSerializer(serializers.ModelSerializer):
 
     def get_medical_conditions_list(self, obj):
         return obj.get_medical_conditions_list()
-
 
 class UserSerializer(serializers.ModelSerializer):
 
@@ -174,8 +175,11 @@ class ExerciseSerializer(serializers.ModelSerializer):
 
     def get_calories_to_burn(self, obj):
         """calculates for calories to be burnt"""
-        return calculate_calories_burned(obj.met_value, obj.workout_day.plan.profile.current_weight, obj.duration_mins)
-
+        try:
+            weight = obj.workout_day.plan.profile.current_weight
+            return calculate_calories_burned(obj.met_value, weight, obj.duration_mins)
+        except AttributeError:
+            return None
 
 class WorkoutDaySerializer(serializers.ModelSerializer):
     exercises = ExerciseSerializer(many=True, read_only=True)
@@ -184,12 +188,10 @@ class WorkoutDaySerializer(serializers.ModelSerializer):
         model = WorkoutDay
         fields = '__all__'
 
-
 class MealSerializer(serializers.ModelSerializer):
     class Meta:
         model = Meal
         fields = '__all__'
-
 
 class NutritionDaySerializer(serializers.ModelSerializer):
     meals = MealSerializer(many=True, read_only=True)
@@ -198,10 +200,13 @@ class NutritionDaySerializer(serializers.ModelSerializer):
         model = NutritionDay
         fields = '__all__'
 
-
 class FitnessPlanSerializer(serializers.ModelSerializer):
     workout_days = WorkoutDaySerializer(many=True, read_only=True)
     nutrition_days = NutritionDaySerializer(many=True, read_only=True)
+    is_active = serializers.SerializerMethodField()
+
+    def get_is_active(self, obj):
+        return obj.start_date <= date.today() <= obj.end_date
 
     class Meta:
         model = FitnessPlan
@@ -227,12 +232,9 @@ class MealTrackingSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
 class WaterTrackingSerializer(serializers.ModelSerializer):
-    target_litres = serializers.IntegerField(source='nutrition_day.target_water_litres', read_only=True)
+    target_litres = serializers.FloatField(source='nutrition_day.target_water_litres', read_only=True)
     
     class Meta:
         model = WaterTracking
         fields = ['id', 'date', 'nutrition_day', 'litres_consumed', 'target_litres', 'notes', 'created_at']
         read_only_fields = ['id', 'created_at']
-
-
-    

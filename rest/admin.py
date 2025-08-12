@@ -1,3 +1,4 @@
+# rest/admin.py
 from django.contrib import admin
 from rest_framework.authtoken.admin import TokenAdmin
 from .models import Profile, FitnessPlan, Meal, Exercise, WorkoutDay, NutritionDay

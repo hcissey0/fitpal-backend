@@ -99,6 +99,7 @@ GOOGLE_AUTH_CLIENT_ID = getenv('GOOGLE_AUTH_CLIENT_ID')
 GOOGLE_AUTH_CLIENT_SECRET = getenv('GOOGLE_AUTH_SECRET')
 
 SOCIALACCOUNT_STORE_TOKENS = True
+# SOCIALACCOUNT_STORE_TOKENS = False
 
 SOCIALACCOUNT_PROVIDERS = {
     'google': {
@@ -168,6 +169,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'api.wsgi.application'
 
+SOCIALACCOUNT_STR = lambda account: str(account.get_provider().name)
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases

@@ -108,8 +108,8 @@ class FitnessPlan(models.Model):
     end_date = models.DateField()
     workout_added_to_calendar = models.BooleanField(default=False)
     nutrition_added_to_calendar = models.BooleanField(default=False)
+    google_calendar_id = models.CharField(max_length=255, blank=True, null=True, help_text="ID of the Google Calendar for this plan.")
     goal_at_creation = models.CharField(null=True, blank=True, max_length=50, help_text="The user's goal when this plan was created.")
-    is_active = models.BooleanField(default=True)
 
     # For debugging and fine-tuning your AI
     ai_prompt_text = models.TextField(blank=True, help_text="The exact prompt sent to the AI.")
@@ -135,6 +135,7 @@ class WorkoutDay(models.Model):
     title = models.CharField(max_length=100, help_text="e.g., 'Upper Body Strength' or 'Rest Day'")
     description = models.TextField(blank=True, help_text="General instructions for the day's workout.")
     is_rest_day = models.BooleanField(default=False)
+    google_calendar_event_id = models.CharField(max_length=255, blank=True, null=True, help_text="ID of the Google Calendar event for this workout day.")
     
     class Meta:
         ordering = ['day_of_week']
@@ -188,6 +189,7 @@ class Meal(models.Model):
     carbs_grams = models.FloatField()
     fats_grams = models.FloatField()
     portion_size = models.CharField(max_length=100, blank=True, null=True, help_text="e.g., '1 medium ladle', '2 pieces of chicken'")
+    google_calendar_event_id = models.CharField(max_length=255, blank=True, null=True, help_text="ID of the Google Calendar event for this meal.")
     
     def __str__(self):
         return f"{self.get_meal_type_display()}: {self.description}"

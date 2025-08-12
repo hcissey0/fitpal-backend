@@ -110,7 +110,6 @@ class FitnessPlanOut(BaseModel):
     start_date: date
     end_date: date
     goal_at_creation: Optional[str] = None
-    is_active: bool
     workout_days: List[WorkoutDayOut]
     nutrition_days: List[NutritionDayOut]
 

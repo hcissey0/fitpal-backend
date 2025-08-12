@@ -27,8 +27,8 @@ from rest_framework import status, generics # Make sure to import status
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from dj_rest_auth.registration.views import SocialLoginView
-from .google_calender_service import create_calendar_events_for_plan
-from allauth.socialaccount.models import SocialAccount
+from .google_calender_service import create_calendar_events_for_plan, delete_calendar_events_for_plan, delete_entire_fitpal_calendar
+from allauth.socialaccount.models import SocialAccount, SocialToken
 
 from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
@@ -109,21 +109,67 @@ class UserViewSet(viewsets.ModelViewSet):
             serializer = self.get_serializer(
                 request.user, 
                 data=request.data, 
-                partial=request.method == 'PATCH'
+                partial=True
             )
+            print('req', request.data)
+            print("got here")
             serializer.is_valid(raise_exception=True)
             serializer.save()
             return Response(serializer.data)
-    
+
     @action(detail=False, methods=['delete'], url_path='me/delete')
     def me_delete(self, request):
         """
-        Deletes the current user
+        Deletes the current user, social accounts, and tokens
         """
         user = request.user
-        user.delete()
+        
+        try:
+            # Delete all social tokens for this user
+            social_tokens = SocialToken.objects.filter(account__user=user)
+            token_count = social_tokens.count()
+            if token_count > 0:
+                social_tokens.delete()
+                print(f'Deleted {token_count} social token(s)')
+            
+            # Delete all social accounts for this user  
+            social_accounts = SocialAccount.objects.filter(user=user)
+            account_count = social_accounts.count()
+            if account_count > 0:
+                social_accounts.delete()
+                print(f'Deleted {account_count} social account(s)')
+            
+            # Note: Don't delete SocialApp - that's shared across all users
+            # SocialApp represents the OAuth app configuration, not user-specific data
+            
+            # Delete the user (this will cascade delete Profile and other related objects)
+            username = user.username
+            user.delete()
+            print(f'Deleted user: {username}')
+            
+            return Response({
+                'message': 'User account deleted successfully'
+            }, status=status.HTTP_204_NO_CONTENT)
+            
+        except Exception as e:
+            print(f'Error deleting user: {e}')
+            return Response({
+                'error': 'Failed to delete user account'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)  
+    # @action(detail=False, methods=['delete'], url_path='me/delete')
+    # def me_delete(self, request):
+    #     """
+    #     Deletes the current user
+    #     """
+    #     user = request.user
+    #     socialtoken = SocialAccount.objects.filter(user=user).first()
+    #     socialapp = SocialApp.objects.filter(socialtoken=socialtoken).first()
+    #     socialtoken.delete() if socialtoken else None
+    #     socialapp.delete() if socialapp else None
+    #     print('deleted')
+    #     user.delete()
 
-        return Response({}, status=status.HTTP_204_NO_CONTENT)
+    #     return Response({}, status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=False, methods=['get', 'post', 'put', 'patch'], url_path='me/profile')
     def me_profile(self, request):
@@ -181,16 +227,6 @@ class UserViewSet(viewsets.ModelViewSet):
         
         if request.method == 'GET':
             plans = profile.fitness_plans.all()
-            if not plans:
-                return Response({"detail": "No fitness plans found."}, status=status.HTTP_404_NOT_FOUND)
-            # Set active plan
-            today = date.today()
-            for plan in plans:
-                if plan.start_date <= today <= plan.end_date:
-                    plan.is_active = True
-                else:
-                    plan.is_active = False
-                plan.save()
             
             plans.order_by("created_at")
             serializer = FitnessPlanSerializer(plans, many=True)
@@ -412,8 +448,60 @@ class UserViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({'detail': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    @action(detail=False, methods=['delete'], url_path='me/delete-plan-from-calendar')
+    def delete_plan_from_calendar(self, request):
+        """ Deletes a specified fitness plan from the user's Google Calendar.
+        Expects a DELETE request with:
+        {
+            "plan_id": <id_of_the_fitness_plan>
+        }"""
 
+        plan_id = request.data.get('plan_id')
+        event_type = request.data.get('type', 'all')
 
+        if not plan_id:
+            return Response({'detail': "plan_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            plan = FitnessPlan.objects.get(pk=plan_id, profile__user=request.user)
+        except FitnessPlan.DoesNotExist:
+            return Response({'detail': 'Fitness plan not found or you do not have permission.'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            # This is a long running operation
+            success_count, failure_count = delete_calendar_events_for_plan(request.user, plan, event_type)
+
+            if failure_count > 0:
+                return Response({
+                    'message': f'Partially completed. Deleted {success_count} events, but {failure_count} failed.',
+                    'success_count': success_count,
+                    'failure_count': failure_count,
+                }, status=status.HTTP_207_MULTI_STATUS)
+            return Response({
+                'message': f'Successfully deleted {success_count} events from your Google Calendar.',
+                'success_count': success_count,
+            })
+        except Exception as e:
+            return Response({'detail': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['delete'], url_path='me/delete-fitpal-calendar')
+    def delete_fitpal_calendar(self, request):
+        """ Deletes the FitPal calendar for the authenticated user.
+        This is a long running operation and should be handled carefully.
+        """
+        try:
+            profile = request.user.profile
+            if not profile.fitness_plans.exists():
+                return Response({'detail': 'No fitness plans found for this user.'}, status=status.HTTP_404_NOT_FOUND)
+
+            # Delete all calendar events associated with the user's fitness plans
+            deleted = delete_entire_fitpal_calendar(request.user)
+            if deleted:
+                return Response({'detail': 'Successfully deleted the FitPal calendar.'}, status=status.HTTP_204_NO_CONTENT)
+            else:
+                return Response({'detail': 'No FitPal calendar found to delete.'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'detail': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=False, methods=['get'], url_path='me/progress')
     def progress(self, request):
@@ -431,11 +519,6 @@ class UserViewSet(viewsets.ModelViewSet):
             return Response({"detail": "Profile not found."}, status=status.HTTP_404_NOT_FOUND)
 
         plans = profile.fitness_plans.all()
-
-        # Get active fitness plan
-        active_plan = profile.fitness_plans.filter(is_active=True).first()
-        if not active_plan:
-            return Response({"detail": "No active fitness plan found."}, status=status.HTTP_404_NOT_FOUND)
 
         # Parse date parameters
         date_param = request.query_params.get('date')
